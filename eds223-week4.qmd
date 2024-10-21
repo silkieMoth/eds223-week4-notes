@@ -1,0 +1,217 @@
+---
+title: "EDS 223: week 4"
+format: html
+editor: visual
+---
+
+```{r}
+library(terra)
+library(tidyverse)
+library(tmap)
+library(kableExtra)
+library(spDataLarge)
+library(geodata)
+```
+
+```{r}
+zion_elevation <- rast(system.file(filename = "raster/srtm.tif", package = "spDataLarge"))
+
+zion_land <- rast(system.file("raster/nlcd.tif", package = "spDataLarge"))
+```
+
+```{r}
+tm_shape(zion_elevation) +
+  tm_raster(title = "Elevation (m)")
+
+tm_shape(zion_land) + 
+  tm_raster(title = "Land Cover Type")
+```
+```{r}
+summary(zion_elevation)
+```
+```{r}
+zion_elevation
+```
+
+```{r}
+landsat <- rast(system.file("raster/landsat.tif", package = "spDataLarge"))
+```
+```{r}
+landsat
+```
+
+```{r}
+tm_shape(landsat) +
+  tm_raster()
+```
+
+```{r}
+landsat3 <- subset(landsat, "landsat_3")
+```
+
+```{r}
+# find mean value of whole raster
+global(zion_elevation, mean)
+
+#gets counts of different land type categories
+freq(zion_land)
+```
+## indexing
+
+```{r}
+zion_elevation[1, 1] # gets first cell in first column
+zion_elevation[1] # gets first cell
+
+landsat[1] # gets first cell of all rasters in multi banded rasters
+landsat[1] <- 0 # assign all first rows to be 0
+landsat[1] # run it again
+
+test_raster <- zion_elevation
+test_raster[test_raster < 20] <- NA # make all values NA based on condition
+```
+
+## spatial subsetting
+```{r}
+#extract value at point
+point <- matrix(c(-113, 37.5), ncol = 2) # create point
+
+terra::extract(zion_elevation, point) # extract value at point
+```
+
+```{r}
+# clip extent
+clip <- rast(xmin = -113.3, xmax = -113, ymin = 37.2, ymax = 37.9, # create clip extent
+             resolution = 0.3,
+             vals = 1)
+
+zion_elevation_clip <- zion_elevation[clip, drop = FALSE] # select all cells in extent, drop = FALSE keeps type a raster
+```
+
+```{r}
+tm_shape(zion_elevation) +
+  tm_raster()
+
+tm_shape(zion_elevation_clip) +
+  tm_raster()
+```
+```{r}
+# masking
+
+# create mask
+rmask <- zion_elevation # dupe raster
+rmask[rmask < 2000] <- NA # make dupe NA on condition
+
+# bracket subsetting
+masked1 <- zion_elevation[rmask, drop = FALSE] # select based on values of dupe
+
+masked2 <- terra::mask(zion_elevation, rmask) # another way 
+```
+
+```{r}
+# original data
+tm_shape(zion_elevation) +
+  tm_raster()
+
+# mask1
+tm_shape(masked1) +
+  tm_raster()
+
+# mask2
+tm_shape(masked2) +
+  tm_raster()
+```
+
+```{r}
+log(zion_elevation) # perform log opreation on all cells
+zion_elevation > 5 # get true false raster for if cells are greater than 5
+```
+
+```{r}
+rcl <- matrix(c(1000, 1500, 1,
+                1500, 2000, 2,
+                2000, 2500, 3,
+                2500, 3000, 4),
+              ncol = 3, byrow = TRUE) # create matrix
+
+reclassified <- terra::classify(zion_elevation, rcl = rcl) # classify by matrix value
+values(reclassified) <- as.factor(values(reclassified))
+
+tm_shape(reclassified) +
+  tm_raster()
+```
+```{r}
+ndvi_fun <- function(nir, red){ # make ndvi function
+  (nir - red)/(nir + red)
+}
+
+ndvi_rast <- lapp(landsat[[c(4,3)]], fun = ndvi_fun) # apply function, feed it nir = 4, and red = 3
+# lapp applies function to every cell in raster
+
+tm_shape(ndvi_rast) + 
+  tm_raster()
+```
+
+```{r}
+elevation_focal <- focal(zion_elevation, # smooths out a raster
+      w = matrix(1, nrow = 9, ncol = 9),
+      fun = min)
+
+tm_shape(elevation_focal) +
+  tm_raster()
+```
+
+```{r}
+terra::zonal(zion_elevation, reclassified, fun = mean) # gets back mean for each group, NOT A RASTER
+```
+
+```{r}
+terra::global(zion_elevation, fun = mean) # get mean of every cell
+```
+
+### changing the extent
+
+```{r}
+extend <- terra::extend(zion_elevation, c(1, 200)) # change extent
+
+try(zion_elevation + extend) # should fail because now the extends are different
+
+extend2 <- terra::extend(zion_elevation, extend)
+```
+
+### origin
+
+```{r}
+origin(zion_elevation)
+```
+### changing resolution
+
+```{r}
+zion_elevation_coarse <- terra::aggregate(zion_elevation, # aggregate raster
+                                          fact = 5,
+                                          fun = mean)
+
+tm_shape(zion_elevation_coarse) +
+  tm_raster()
+
+zion_elevation_disagg <- terra::disagg(zion_elevation_coarse, #disaggregate coarse raster
+                                       fact = 5,
+                                       method = "bilinear")
+
+if(identical(zion_elevation, zion_elevation_disagg)){ # not the same as orig, lost data during aggregation
+  print("match!")
+} else{
+  warning("don't match")
+}
+```
+
+### resampling
+```{r}
+target_rast <- rast(xmin = -113.2, xmax = -112.9, # make test raster
+                    ymin = 37.4, ymax = 37.5,
+                    nrow = 450, ncol = 460,
+                    crs = crs(zion_elevation))
+
+zion_elevation_resample <- terra::resample(zion_elevation, y = target_rast, # resamples to match test raster
+                method = "bilinear")
+```
+
